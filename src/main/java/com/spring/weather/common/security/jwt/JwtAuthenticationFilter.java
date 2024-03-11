@@ -1,0 +1,89 @@
+package com.spring.weather.common.security.jwt;
+
+import io.jsonwebtoken.Claims;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import java.io.IOException;
+
+// OncePerRequestFilter 요청에 대해 한번만 수행
+public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private final JwtTokenProvider jwtTokenProvider;
+
+    public JwtAuthenticationFilter(JwtTokenProvider jwtTokenProvider) { this.jwtTokenProvider = jwtTokenProvider; }
+
+    @Override
+    public void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain) throws ServletException, IOException, CustomJwtException {
+        String token = resolveToken(request);
+        String refreshToken = resolveRefreshToken(request);
+
+        try {
+            logger.info(StringUtils.isEmpty(token));
+            if (!StringUtils.isEmpty(token) && jwtTokenProvider.validateToken(token)) {
+                Authentication authentication = jwtTokenProvider.getAuthentication(token);
+                SecurityContextHolder.getContext().setAuthentication(authentication);
+            }
+        } catch (CustomJwtException e) {
+            if (e.getType() == JwtErrorType.Expired) {
+                // refresh Token 초기화
+                if (jwtTokenProvider.validateToken(refreshToken) && !StringUtils.isEmpty(refreshToken)) {
+                    Claims claims = jwtTokenProvider.parseClaims(refreshToken);
+
+                    // access Token 재발급
+                    String newAccessToken = jwtTokenProvider.createToken(claims.get("sub").toString(), claims.get("auth").toString());
+
+                    // refresh Token 재발급
+                    String newRefreshToken = jwtTokenProvider.createRefreshToken(claims.get("sub").toString(), claims.get("auth").toString());
+
+                    // Header에 access Token 추가
+                    response.setHeader("Authorization", newAccessToken);
+                    response.setHeader("refreshToken", newRefreshToken);
+                    response.setHeader("allTokenExpire", "N");
+                    request.setAttribute("Authorization", newAccessToken);
+                    request.setAttribute("refreshToken", newRefreshToken);
+
+                    // Context에 넣기
+                    this.setAuthentication(newAccessToken);
+                } else throw new CustomJwtException(JwtErrorType.Invalid);
+            } else throw e;
+        }
+
+        chain.doFilter(request, response);
+    }
+
+    // 헤더에서 토큰 추출
+    private String resolveToken(HttpServletRequest request) {
+        logger.info("request bearer Token : " + request.getHeader("Authorization"));
+        String bearerToken = request.getHeader("Authorization");
+
+        return bearerToken;
+    }
+
+    // 헤더에서 리프레시 토큰 추출
+    private String resolveRefreshToken(HttpServletRequest request) {
+        logger.info("request refresh Token : " + request.getHeader("refreshToken"));
+        request.getHeaderNames().asIterator().forEachRemaining(
+                headerName -> logger.debug(headerName + " : " + request.getHeader(headerName))
+        );
+
+        String refreshToken = request.getHeader("refreshToken");
+
+        return refreshToken;
+    }
+
+    // Token 유저 정보
+    public void setAuthentication(String token) {
+        // 토큰으로부터 유저정보
+        Authentication authentication = jwtTokenProvider.getAuthentication(token);
+
+        // SecurityContext 에 Authentication 저장
+        SecurityContextHolder.getContext().setAuthentication(authentication);
+    }
+}
