@@ -9,5 +9,5 @@ public class UserVO {
     private String userNm;
     private String userPwd;
     private String roleId;
-    private String roleNm;
+    private String useYn;
 }

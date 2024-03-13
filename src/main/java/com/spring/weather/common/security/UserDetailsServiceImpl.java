@@ -42,7 +42,7 @@ public class UserDetailsServiceImpl implements UserDetailsService {
         }
 
         // 로그인 사용자 정보 조회
-        LoginVO loginInfo = loginMapper.loginInfo(id);
+        LoginVO loginInfo = loginMapper.selectLoginInfo(id);
 
         if (loginInfo == null) {
             log.error("조회 결과 아이디 === NULL");
